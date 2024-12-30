@@ -1,107 +1,226 @@
-import express from 'express';
-import fs from 'fs';
-import pino from 'pino';
-import { makeWASocket, useMultiFileAuthState, delay, makeCacheableSignalKeyStore, Browsers, jidNormalizedUser } from '@whiskeysockets/baileys';
-import { upload } from './mega.js';
+import { Boom } from '@hapi/boom'
+import Baileys, {
+  DisconnectReason,
+  delay,
+  Browsers,
+  makeCacheableSignalKeyStore,
+  useMultiFileAuthState
+} from '@whiskeysockets/baileys'
+import cors from 'cors'
+import express from 'express'
+import fs from 'fs'
+import path, { dirname } from 'path'
+import pino from 'pino'
+import { fileURLToPath } from 'url'
+import {upload} from './mega.js'
 
-const router = express.Router();
+const app = express()
 
-// Ensure the session directory exists
-function removeFile(FilePath) {
-    try {
-        if (!fs.existsSync(FilePath)) return false;
-        fs.rmSync(FilePath, { recursive: true, force: true });
-    } catch (e) {
-        console.error('Error removing file:', e);
-    }
+app.use((req, res, next) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
+
+  res.setHeader('Pragma', 'no-cache')
+
+  res.setHeader('Expires', '0')
+  next()
+})
+
+app.use(cors())
+
+
+
+let PORT = process.env.PORT || 8000
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
+
+app.use(express.static(path.join(__dirname, 'client', 'build')));
+
+function createRandomId() {
+  const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+  let id = ''
+  for (let i = 0; i < 10; i++) {
+    id += characters.charAt(Math.floor(Math.random() * characters.length))
+  }
+  return id
 }
 
-router.get('/', async (req, res) => {
-    let num = req.query.number;
-    let dirs = './' + (num || `session`);
-    
-    // Remove existing session if present
-    await removeFile(dirs);
-    
-    async function initiateSession() {
-        const { state, saveCreds } = await useMultiFileAuthState(dirs);
+let sessionFolder = `./auth/${createRandomId()}`
+if (fs.existsSync(sessionFolder)) {
+  try {
+    fs.rmdirSync(sessionFolder, { recursive: true })
+    console.log('Deleted the "SESSION" folder.')
+  } catch (err) {
+    console.error('Error deleting the "SESSION" folder:', err)
+  }
+}
 
-        try {
-            let GlobalTechInc = makeWASocket({
-                auth: {
-                    creds: state.creds,
-                    keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "fatal" }).child({ level: "fatal" })),
-                },
-                printQRInTerminal: false,
-                logger: pino({ level: "fatal" }).child({ level: "fatal" }),
-                browser: ["Ubuntu", "Chrome", "20.0.04"],
-            });
+let clearState = () => {
+  fs.rmdirSync(sessionFolder, { recursive: true })
+}
 
-            if (!GlobalTechInc.authState.creds.registered) {
-                await delay(2000);
-                num = num.replace(/[^0-9]/g, '');
-                const code = await GlobalTechInc.requestPairingCode(num);
-                if (!res.headersSent) {
-                    console.log({ num, code });
-                    await res.send({ code });
-                }
-            }
+function deleteSessionFolder() {
+  if (!fs.existsSync(sessionFolder)) {
+    console.log('The "SESSION" folder does not exist.')
+    return
+  }
 
-            GlobalTechInc.ev.on('creds.update', saveCreds);
-            GlobalTechInc.ev.on("connection.update", async (s) => {
-                const { connection, lastDisconnect } = s;
+  try {
+    fs.rmdirSync(sessionFolder, { recursive: true })
+    console.log('Deleted the "SESSION" folder.')
+  } catch (err) {
+    console.error('Error deleting the "SESSION" folder:', err)
+  }
+}
 
-                if (connection === "open") {
-                    await delay(10000);
-                    const sessionGlobal = fs.readFileSync(dirs + '/creds.json');
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'client', 'build', 'index.html'));
+});
 
-                    // Helper to generate a random Mega file ID
-                    function generateRandomId(length = 6, numberLength = 4) {
-                        const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-                        let result = '';
-                        for (let i = 0; i < length; i++) {
-                            result += characters.charAt(Math.floor(Math.random() * characters.length));
-                        }
-                        const number = Math.floor(Math.random() * Math.pow(10, numberLength));
-                        return `${result}${number}`;
-                    }
+/* app.get('/', async (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'))
+})
 
-                    // Upload session file to Mega
-                    const megaUrl = await upload(fs.createReadStream(`${dirs}/creds.json`), `${generateRandomId()}.json`);
-                    let stringSession = megaUrl.replace('https://mega.nz/file/', ''); // Extract session ID from URL
-                    stringSession = 'MERCEDES~' + stringSession;  // Prepend your name to the session ID
+app.get('/qr', async (req, res) => {
+  res.sendFile(path.join(__dirname, 'qr.html'))
+})
 
-                    // Send the session ID to the target number
-                    const userJid = jidNormalizedUser(num + '@s.whatsapp.net');
-                    await GlobalTechInc.sendMessage(userJid, { text: stringSession });
+app.get('/code', async (req, res) => {
+  res.sendFile(path.join(__dirname, 'client', 'build', 'index.html'));
+}); */
 
-                    // Send confirmation message
-                    await GlobalTechInc.sendMessage(userJid, { text: '`Hello There` \n\n`Use This Code to Deploy Your Bot Or Share With Your Deployer To Connect Your Bot.`\n\n`When Deploying, Paste the Session on Config Var`\n\n`Thanks For Choosing Mercedes`\n\n `Support By Joining other Followers:-https://whatsapp.com/channel/0029Vajvy2kEwEjwAKP4SI0x` \n' });
+app.get('/pair', async (req, res) => {
+  let phone = req.query.phone
 
-                    // Clean up session after use
-                    await delay(100);
-                    removeFile(dirs);
-                    process.exit(0);
-                } else if (connection === 'close' && lastDisconnect && lastDisconnect.error && lastDisconnect.error.output.statusCode !== 401) {
-                    console.log('Connection closed unexpectedly:', lastDisconnect.error);
-                    await delay(10000);
-                    initiateSession(); // Retry session initiation if needed
-                }
-            });
-        } catch (err) {
-            console.error('Error initializing session:', err);
-            if (!res.headersSent) {
-                res.status(503).send({ code: 'Service Unavailable' });
-            }
+  if (!phone) return res.json({ error: 'Please Provide Phone Number' })
+
+  try {
+    const code = await startnigg(phone)
+    res.json({ code: code })
+  } catch (error) {
+    console.error('Error in WhatsApp authentication:', error)
+    res.status(500).json({ error: 'Internal Server Error' })
+  }
+})
+
+async function startnigg(phone) {
+  return new Promise(async (resolve, reject) => {
+    try {
+      if (!fs.existsSync(sessionFolder)) {
+        await fs.mkdirSync(sessionFolder)
+      }
+
+      const { state, saveCreds } = await useMultiFileAuthState(sessionFolder)
+
+      const xlicon = Baileys.makeWASocket({
+        version: [2, 3000, 1015901307],
+        printQRInTerminal: false,
+        logger: pino({
+          level: 'silent',
+        }),
+        browser: Browsers.ubuntu("Chrome"),
+         auth: {
+          creds: state.creds,
+          keys: makeCacheableSignalKeyStore(
+            state.keys,
+            pino().child({
+              level: 'fatal',
+              stream: 'store',
+            })
+          ),
+        },
+      })
+
+      if (!xlicon.authState.creds.registered) {
+        let phoneNumber = phone ? phone.replace(/[^0-9]/g, '') : ''
+        if (phoneNumber.length < 11) {
+          return reject(new Error('Please Enter Your Number With Country Code !!'))
         }
+        setTimeout(async () => {
+          try {
+            let code = await xlicon.requestPairingCode(phoneNumber)
+            console.log(`Your Pairing Code : ${code}`)
+            resolve(code)
+          } catch (requestPairingCodeError) {
+            const errorMessage = 'Error requesting pairing code from WhatsApp'
+            console.error(errorMessage, requestPairingCodeError)
+            return reject(new Error(errorMessage))
+          }
+        }, 3000)
+      }
+
+      xlicon.ev.on('creds.update', saveCreds)
+
+      xlicon.ev.on('connection.update', async update => {
+        const { connection, lastDisconnect } = update
+
+        if (connection === 'open') {
+          await delay(10000)
+          let data1 = fs.createReadStream(`${sessionFolder}/creds.json`);
+          const output = await upload(data1, createRandomId() + '.json');
+          let sessi = output.includes('https://mega.nz/file/') ?  output.split('https://mega.nz/file/')[1] : 'Error Uploading to Mega';
+          await delay(2000)
+          let guru = await xlicon.sendMessage(xlicon.user.id, { text: sessi })
+          await delay(2000)
+          await xlicon.sendMessage(
+            xlicon.user.id,
+            {
+              text: 'Hey \n\nDo Not Share Your Session Id With Anyone.\n\nSupport  by Following Channel:-https://whatsapp.com/channel/0029Vajvy2kEwEjwAKP4SI0x \n',
+            },
+            { quoted: guru }
+          )
+
+          console.log('Connected to WhatsApp Servers')
+
+          try {
+            deleteSessionFolder()
+          } catch (error) {
+            console.error('Error deleting session folder:', error)
+          }
+
+          process.send('reset')
+        }
+
+        if (connection === 'close') {
+          let reason = new Boom(lastDisconnect?.error)?.output.statusCode
+          console.log('Connection Closed:', reason)
+          if (reason === DisconnectReason.connectionClosed) {
+            console.log('[Connection closed, reconnecting....!]')
+            process.send('reset')
+          } else if (reason === DisconnectReason.connectionLost) {
+            console.log('[Connection Lost from Server, reconnecting....!]')
+            process.send('reset')
+          } else if (reason === DisconnectReason.loggedOut) {
+            clearState()
+            console.log('[Device Logged Out, Please Try to Login Again....!]')
+            process.send('reset')
+          } else if (reason === DisconnectReason.restartRequired) {
+            console.log('[Server Restarting....!]')
+            startnigg()
+          } else if (reason === DisconnectReason.timedOut) {
+            console.log('[Connection Timed Out, Trying to Reconnect....!]')
+            process.send('reset')
+          } else if (reason === DisconnectReason.badSession) {
+            console.log('[BadSession exists, Trying to Reconnect....!]')
+            clearState()
+            process.send('reset')
+          } else if (reason === DisconnectReason.connectionReplaced) {
+            console.log(`[Connection Replaced, Trying to Reconnect....!]`)
+            process.send('reset')
+          } else {
+            console.log('[Server Disconnected: Maybe Your WhatsApp Account got Fucked....!]')
+            process.send('reset')
+          }
+        }
+      })
+
+      xlicon.ev.on('messages.upsert', () => {})
+    } catch (error) {
+      console.error('An Error Occurred:', error)
+      throw new Error('An Error Occurred')
     }
+  })
+}
 
-    await initiateSession();
-});
-
-// Global uncaught exception handler
-process.on('uncaughtException', (err) => {
-    console.log('Caught exception: ' + err);
-});
-
-export default router;
+app.listen(PORT, () => {
+  console.log(`API Running on PORT:${PORT}`)
+})
