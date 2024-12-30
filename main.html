@@ -11,20 +11,39 @@
       justify-content: center;
       height: 100vh;
       margin: 0;
-      background-image: url("https://files.catbox.moe/1i1rfr.jpg"); /* Set the background image */
+      background-image: url("https://i.ibb.co/QcP3Byh/ccb5e017f3895c328123f0b95ee2b9ec.jpg"); /* Set the background image */
       background-repeat: no-repeat;
       background-position: center;
       background-size: cover;
     }
 
+    @keyframes rainbow-border {
+      0% { border-color: red; }
+      16% { border-color: orange; }
+      33% { border-color: yellow; }
+      50% { border-color: green; }
+      66% { border-color: blue; }
+      83% { border-color: indigo; }
+      100% { border-color: violet; }
+    }
+
+    @keyframes rainbow-text {
+      0% { color: red; }
+      16% { color: orange; }
+      33% { color: yellow; }
+      50% { color: green; }
+      66% { color: blue; }
+      83% { color: indigo; }
+      100% { color: violet; }
+    }
+
     .btn {
-      --color: #FFA500; /* Orange color */
-      --color2: rgb(10, 25, 30);
       width: 200px; /* Set a fixed width for the buttons */
       padding: 0.8em 1.75em;
       background-color: transparent;
       border-radius: 6px;
-      border: .3px solid var(--color);
+      border: 2px solid; /* Set border to 2px for better visibility */
+      animation: rainbow-border 3s linear infinite; /* Animate border color */
       transition: .5s;
       position: relative;
       overflow: hidden;
@@ -34,40 +53,12 @@
       font-size: 17px;
       font-family: 'Roboto', 'Segoe UI', sans-serif;
       text-transform: uppercase;
-      color: var(--color);
+      animation: rainbow-text 3s linear infinite; /* Animate text color */
       margin-bottom: 10px; /* Add margin to separate buttons */
     }
 
-    .btn::after, .btn::before {
-      content: '';
-      display: block;
-      height: 100%;
-      width: 100%;
-      transform: skew(90deg) translate(-50%, -50%);
-      position: absolute;
-      inset: 50%;
-      left: 25%;
-      z-index: -1;
-      transition: .5s ease-out;
-      background-color: var(--color);
-    }
-
-    .btn::before {
-      top: -50%;
-      left: -25%;
-      transform: skew(90deg) rotate(180deg) translate(-50%, -50%);
-    }
-
-    .btn:hover::before {
-      transform: skew(45deg) rotate(180deg) translate(-50%, -50%);
-    }
-
-    .btn:hover::after {
-      transform: skew(45deg) translate(-50%, -50%);
-    }
-
     .btn:hover {
-      color: var(--color2);
+      transform: scale(1.05); /* Slightly enlarge on hover */
     }
 
     .btn:active {
